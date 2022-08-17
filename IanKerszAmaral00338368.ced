@@ -1,0 +1,296 @@
+; Ian Kersz Amaral - Cartao: 00338368
+;
+;******************************************************************************
+;	Arquivo do Kernel, trabalho do Cesar do Ian.
+;
+;	Versao: 2022.1
+;
+;	Areas de memoria:
+;
+;	0000 - 7FFF		_KERNEL
+;					Area de Kernel para implementacao dos alunos
+;
+;	0100 - 01FF		_VETTAB
+;					Tabela com os vetores das funcoes do kernel
+;					*** CUIDADO! Esse vetor esta no meio da area de codigo ***
+;
+;	8000 - FF7F		_APP
+;					Area onde sera colocado o programa de aplicacao.
+;					Esse programa vai fazer o acesso aos perifericos e interrupcoes, atraves das funcoes do Kernel.
+;
+;	FF80 - FFBF 	_IOAREA16
+;					Area de perifericos, acessada na base 16 bits
+;
+;	FFC0 - FFFF		_IOAREA08
+;					Area de perifericos, acessada na base 8 bits			
+;******************************************************************************
+
+_KERNEL:	equ	h0000
+_VETTAB:	equ	h0100
+_RESET:		equ	_VETTAB+H0100
+_APP:		equ	h8000
+_IOAREA16:	equ	hFF80
+_IOAREA08:	equ	hFFC0
+STACK:		equ	h7FFF
+
+;------------------------------------------------------------------------------
+;	Area reservada para os perifericos
+;------------------------------------------------------------------------------
+
+; Acesso em 16 bits
+org		_IOAREA16
+		daw		[31]
+IVET:	dw		0	; Vetor de interrupcao
+
+; Acesso em 8 bits
+org		_IOAREA08
+		dab		[23]
+TIMDT:	db		0			; Registro de programacao do timer
+INTS:	db		0			; INTERRUPT STATUS: IP x x x . x x IPStec IPStim
+INTE:	db		0			; INTERRUPT ENABLE: IE x x x . x x IEStec IEStim
+TECST:	db		0			; Status do teclado
+TECDT:	db		0			; Dado do teclado
+VISOR:	dab		[36]		; Portas de acesso ao visor
+
+;------------------------------------------------------------------------------
+;	Ponto de entrada do RESET do processador
+;------------------------------------------------------------------------------
+org		_KERNEL
+		jmp		_RESET
+
+;------------------------------------------------------------------------------
+;	Area do kernel com os vetores das funcoes do kernel
+;------------------------------------------------------------------------------
+org		_VETTAB
+		
+	dw		getchar			; BYTE	getchar()
+	dw		putchar			; void	putchar(BYTE c, WORD pos)
+	dw		putmsg			; void	putmsg(BYTE *msg, WORD pos)
+	dw		clr_visor		; void	clr_visor()
+	dw		kbhit			; WORD	kbhit()
+	dw		get_timer		; WORD	get_timer()
+	dw		clr_timer		; void	clr_timer()
+	dw		get_timer_on	; WORD	get_timer_on()
+	dw		set_timer_on	; void	set_timer_on(WORD on)
+	dw		get_speed		; WORD	get_speed()
+
+;------------------------------------------------------------------------------
+;	Codigo de RESET (BOOT) do processador/interrupcao
+;------------------------------------------------------------------------------
+org		_RESET
+	clr		INTE			; 1) Desabilitar o sistema de interrupcoes
+	mov		#STACK,r6		; 2) Inicializar o stack pointer (SP = R6)
+	mov 	#ISR, IVET		; 3) Inicializar as variaveis internas usadas pelo sistema de interrupcoes e perifericos (IVET, INTE, etc.)
+	clr		INTS			; 3.5) Limpar o registro de interrupcoes
+	clr		speed			; 4) Inicializar as variaveis internas do kernel
+	clr 	timer			; 4.1) Limpa o timer
+	clr		r0				; 4.2) Limpar o R0
+	clr		r1				; 4.3) Limpar o R1
+	clr		r2				; 4.4) Limpar o R2
+	clr		r3				; 4.5) Limpar o R3
+	clr		r4				; 4.6) Limpar o R4
+	clr		r5				; 4.7) Limpar o R5
+	clr		TECST			; 5) Inicializar o teclado zerando o byte de estado (TECST, endereco 65498)
+	clr		TECDT			; 5.5) Inicializar o teclado zerando o byte de dados (TECDT, endereco 65497)
+	mov		#VelTimer,TIMDT	; 6) Inicializar o timer com a constante de velocidade do timer
+	jsr		r7,clr_visor	; 7) Limpar o visor
+	mov		#h83,INTE		; 8) Habilitar interrupcoes
+	jmp		_APP			; 9) Retornar para o programa de aplicacao com um desvio para o endereco _APP da memoria
+	
+;------------------------------------------------------------------------------
+; BYTE	getchar()
+;------------------------------------------------------------------------------
+getchar:
+loop_getchar:
+		cmp		TECST, #h80	; 1) Verificar se o teclado esta pronto para ler
+		bne		loop_getchar; 2) Se nao estiver, retornar para o loop
+		mov 	TECDT,R0	; 3) Ler o byte de dados do teclado
+		clr		TECST		; 4) Limpar o byte de estado do teclado
+		rts		r7			; 5) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; void	putchar(BYTE c, WORD pos)
+;------------------------------------------------------------------------------
+putchar:
+		cmp 	r5,#H20		; 1) Verificar se e um caracter valido
+		bmi		putchar_out	; 2) Se nao estiver, retornar para o programa de aplicacao
+		cmp 	r5,#H7A		; 3) Verificar se e um caracter valido
+		bpl		putchar_out	; 4) Se nao estiver, retornar para o programa de aplicacao
+		tst 	r4			; 5) Verificar se a posicao e valida
+		bmi		putchar_out	; 6) Se nao estiver, retornar para o programa de aplicacao
+		cmp 	r4,#36		; 7) Verificar se a posica e valido
+		bpl		putchar_out	; 8) Se nao estiver, retornar para o programa de aplicacao
+		add 	#VISOR,r4	; 9) Calcular o endereco do visor
+		mov 	r5,(R4)		; 10) Escrever o caracter no visor
+		sub 	#VISOR,r4	; 11) Restaurar o endereco do visor
+putchar_out:
+		rts		r7			; 12) Retornar para o programa de aplicacao
+	
+;------------------------------------------------------------------------------
+; void	putmsg(BYTE *msg, WORD pos)
+;------------------------------------------------------------------------------
+putmsg:
+		mov 	r3,-(r6)	; 1) Salvar o endereco do programa de aplicacao
+		mov 	r5,r3		; 2) Copiar o endereco do programa de aplicacao para o R5
+		dec 	r3			; 3) Decrementar o endereco do programa de aplicacao para pegar o byte correto
+loop_putmsg:
+		mov 	(r3),r5		; 4) Copiar o endereco do programa de aplicacao para o R5
+		and 	#h00FF,r5	; 5) Limpar os bits de sinal do endereco do programa de aplicacao
+		beq		putmsg_out	; 6) Se o endereco for zero, retornar para o programa de aplicacao
+		jsr		r7,putchar	; 7) Escrever o caracter no visor
+		inc		r3			; 8) Incrementar o endereco do programa de aplicacao
+		inc		r4			; 9) Incrementar o endereco do visor
+		jmp		loop_putmsg	; 10) Retornar para o loop
+
+putmsg_out:
+		mov		r3,r5		; 11) Copiar o endereco do programa de aplicacao para o R5
+		mov		(r6)+,r3	; 12) Restaurar o endereco do programa de aplicacao
+		rts		r7			; 13) Retornar para o programa de aplicacao
+	
+;------------------------------------------------------------------------------
+; void	clr_visor()
+;------------------------------------------------------------------------------
+clr_visor:
+		mov 	R5, -(R6)	; 1) Salvar o endereco do programa de aplicacao
+		mov 	#VISOR,R5 	; 2) Copiar o endereco do visor para o R5
+loop_visor:
+		mov 	#H20,(R5)	; 3) Limpar o visor
+		inc		R5			; 4) Incrementar o endereco do visor
+		cmp		R5,#VISOR+35; 5) Verificar se o endereco do visor e maior que o limite
+		BNE 	loop_visor	; 6) Se nao estiver, retornar para o loop
+		mov 	#H20,(R5)	; 7) Limpar o visor
+		mov		(R6)+, R5	; 8) Restaurar o endereco do programa de aplicacao
+		rts 	R7			; 9) Retornar para o programa de aplicacao
+		
+;------------------------------------------------------------------------------
+; WORD	kbhit()
+;------------------------------------------------------------------------------
+kbhit:
+		mov		#42,r0		; 1) Copiar o valor do caracter '*' para o R0
+		tst		TECST		; 2) Verificar se o teclado esta pronto para ler
+		beq		kbhit_out	; 3) Se nao estiver, retornar para o programa de aplicacao
+		cmp		TECDT,#h2B	; 4) Verificar se o caracter lido e valido
+		beq 	kbhit_out	; 5) Se nao estiver, retornar para o programa de aplicacao
+		cmp		TECDT,#h2D	; 5) Verificar se o caracter lido e valido
+		beq 	kbhit_out	; 6) Se nao estiver, retornar para o programa de aplicacao
+		clr		r0			; 7) Limpar o R0
+kbhit_out:
+		rts		r7			; 8) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; WORD	get_timer()
+;------------------------------------------------------------------------------
+get_timer:
+		mov		timer,r0	; 1) Copiar o valor do timer para o R0
+		rts		r7			; 2) Retornar para o programa de aplicacao
+	
+;------------------------------------------------------------------------------
+; void	clr_timer()
+;------------------------------------------------------------------------------
+clr_timer:
+		clr 	timer		; 1) Limpar o timer
+		rts		r7			; 2) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; WORD	get_timer_on()
+;------------------------------------------------------------------------------
+get_timer_on:
+		clr		r0			; 1) Limpar o R0
+		cmp		INTE,#h81	; 2) Verificar se o timer esta ligado
+		beq		GTO_out		; 3) Se estiver, retornar para o programa de aplicacao
+		cmp		INTE,#h83	; 4) Verificar se o timer esta ligado
+		beq		GTO_out		; 5) Se estiver, retornar para o programa de aplicacao
+		rts		r7			; 6) Retornar para o programa de aplicacao
+GTO_out:
+		inc		r0			; 7) Incrementar o R0 para indicar que o timer esta ligado
+		rts		r7			; 8) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; void	set_timer_on(WORD on)
+;------------------------------------------------------------------------------
+set_timer_on:
+		tst 	r5			; 1) Verificar se o valor do R5 e zero
+		beq		timer_stop	; 2) Se for, retornar para o programa de aplicacao
+		or		#h81,INTE	; 3) Ligar o timer
+		rts		r7			; 4) Retornar para o programa de aplicacao
+timer_stop:
+		and		#hFE,INTE	; 5) Desligar o timer
+		rts		r7			; 6) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; WORD	get_speed()
+;------------------------------------------------------------------------------
+get_speed:
+		mov		speed,r0	; 1) Copiar o valor do speed para o R0
+		rts		r7			; 2) Retornar para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; Servicos de interrupcao
+;------------------------------------------------------------------------------
+ISR:						; Interrupcao de servico
+		mov		r0,-(r6)	; Salva registradores
+		mov		r1,-(r6)
+		mov		r2,-(r6)
+		mov		r3,-(r6)
+		mov		r4,-(r6)
+		mov		r5,-(r6)
+
+		mov		INTS,r0		; Verifica a INTS do TIMER
+		and		#1,r0		; Verifica se o bit 0 da INTS esta ligado
+		beq		ISR2		; Se nao estiver, pula para a proxima verificacao
+		jsr		r7,ISRTim	; Tratamento da INTS do TIMER
+		and		#hFFFE,INTS	; Desliga bit de INTS TIMER
+
+ISR2:
+		mov		INTS,r0		; Verifica a INTS do Teclado
+		and		#2,r0		; Verifica se o bit 1 da INTS esta ligado
+		beq		ISR3		; Se nao estiver, pula para a proxima verificacao
+		jsr		r7,ISRTec	; Tratamento da INTS do Teclado
+		and		#hFFFD,INTS	; Desliga bit de INTS do Teclado
+
+ISR3:
+		mov		(r6)+,R5	; Retorna os registradores da pilha
+		mov		(r6)+,r4
+		mov		(r6)+,r3
+		mov		(r6)+,r2
+		mov		(r6)+,r1
+		mov		(r6)+,r0
+
+		rti					; Return From Interrupt
+
+ISRTim:
+	add		#VelTimer,timer	; Incrementa o contador do timer
+	rts 	r7				; Retorna para o programa de aplicacao
+
+ISRTec:
+	cmp		TECDT,#h2B		; Verifica se o caracter lido e '+'
+	beq 	speed_inc		; Se for, incrementa o speed
+	cmp		TECDT,#h2D		; Verifica se o caracter lido e '-'
+	beq 	speed_dec		; Se for, decrementa o speed
+	jmp		ISRTec_out		; Se nao for, retorna para o programa de aplicacao
+
+speed_return:
+	clr		TECST			; Limpa o TECST
+ISRTec_out:
+	rts		r7				; Retorna para o programa de aplicacao
+
+speed_dec:
+	cmp		speed,#0		; Verifica se o speed e zero
+	beq		speed_return	; Se for, retorna para o programa de aplicacao
+	dec		speed			; Decrementa o speed
+	jmp		speed_return	; Retorna para o programa de aplicacao
+
+speed_inc:
+	cmp		speed,#100		; Verifica se o speed e 100
+	beq		speed_return	; Se for, retorna para o programa de aplicacao
+	inc		speed			; Incrementa o speed
+	jmp		speed_return	; Retorna para o programa de aplicacao
+
+;------------------------------------------------------------------------------
+; Variaveis do Kernel
+;------------------------------------------------------------------------------
+speed: 	dw 	0
+timer: 	dw	0
+VelTimer:	equ	5
+
+; Ian Kersz Amaral - Cartao: 00338368
