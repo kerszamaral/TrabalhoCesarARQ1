@@ -1,4 +1,4 @@
-; Ian Kersz Amaral - Cartao: 00338368
+﻿; Ian Kersz Amaral - Cartao: 00338368
 ;
 ;******************************************************************************
 ;	Arquivo do Kernel, trabalho do Cesar do Ian.
@@ -94,7 +94,7 @@ org		_RESET
 	clr		TECDT			; 5.5) Inicializar o teclado zerando o byte de dados (TECDT, endereco 65497)
 	mov		#VelTimer,TIMDT	; 6) Inicializar o timer com a constante de velocidade do timer
 	jsr		r7,clr_visor	; 7) Limpar o visor
-	mov		#h83,INTE		; 8) Habilitar interrupcoes
+	mov		#h82,INTE		; 8) Habilitar interrupcoes
 	jmp		_APP			; 9) Retornar para o programa de aplicacao com um desvio para o endereco _APP da memoria
 	
 ;------------------------------------------------------------------------------
